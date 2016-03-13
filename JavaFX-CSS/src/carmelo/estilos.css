@@ -1,0 +1,17 @@
+/* 
+    Created on : 03/10/2016, 09:02:06 AM
+    Author     : Carmelo Marin Abrego
+*/
+
+.label {
+    -fx-text-fill: green;
+}
+
+#texto {
+    -fx-text-fill: blue;
+}
+
+.vertical-box {
+    -fx-alignment: CENTER; 
+    -fx-background-color: gray;
+}
