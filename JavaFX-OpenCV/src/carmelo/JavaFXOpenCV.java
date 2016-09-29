@@ -5,9 +5,10 @@
  */
 package carmelo;
 
-import java.io.ByteArrayInputStream;
-import javafx.animation.AnimationTimer;
 import javafx.application.Application;
+import javafx.concurrent.ScheduledService;
+import javafx.concurrent.Task;
+import javafx.concurrent.WorkerStateEvent;
 import javafx.event.ActionEvent;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
@@ -17,14 +18,12 @@ import javafx.scene.image.ImageView;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import javafx.stage.WindowEvent;
+import javafx.util.Duration;
 import org.opencv.core.Core;
 import org.opencv.core.Mat;
-import org.opencv.core.MatOfByte;
 import org.opencv.core.Size;
-import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 import org.opencv.videoio.VideoCapture;
-import org.opencv.videoio.Videoio;
 
 /**
  *
@@ -38,34 +37,32 @@ public class JavaFXOpenCV extends Application {
 
     private VideoCapture capture;
     private ImageView imageView;
-    private AnimationTimer timer;
+    private ScheduledService<Image> service;
 
     @Override
     public void start(Stage primaryStage) {
 
-        timer = new AnimationTimer() {
+        capture = new VideoCapture();
+
+        // servicio que ejecutar la captura periodicamente
+        service = new ScheduledService<Image>() {
             @Override
-            public void handle(long now) {
-                if (capture.isOpened()) {
-                    Mat frame = new Mat();
-                    capture.read(frame);
-                    if (!frame.empty()) {
-                        
-                        Mat dst = new Mat();
-                        
-                        Imgproc.cvtColor(frame, dst, Imgproc.COLOR_BGR2GRAY);
-                        Imgproc.GaussianBlur(dst, dst, new Size(7, 7), 1.5, 1.5);
-                        Imgproc.Canny(dst, dst, 0, 30, 3, false);
-                        
-                        imageView.setImage(createImageFromMat(dst));
-                    }
-                }
+            protected Task<Image> createTask() {
+                // crear un CameraTask usando el VideoCapture y 
+                // el metodo para procesar la imagen idicado JavaFXOpenCV.this::procesarImagen
+                return new CameraTask(capture, JavaFXOpenCV.this::procesarImagen);
             }
         };
 
+        // ejecutar el servicio cada 33.3 ms
+        service.setPeriod(Duration.millis(33.333333));
+
+        // al finalizar cada ejecucion ejecutar el metodo this::ready
+        service.setOnReady(this::ready);
+
         imageView = new ImageView();
-        imageView.setFitHeight(320);
-        imageView.setFitWidth(460);
+        imageView.setFitHeight(600);
+        imageView.setFitWidth(800);
 
         Button btn = new Button();
         btn.setText("Iniciar Camara");
@@ -81,30 +78,38 @@ public class JavaFXOpenCV extends Application {
         primaryStage.setScene(scene);
         primaryStage.sizeToScene();
         primaryStage.setOnCloseRequest(this::stop);
+        primaryStage.setResizable(false);
 
         primaryStage.show();
     }
 
-    private void start(ActionEvent e) {
-        if (capture == null) {
-            capture = new VideoCapture();
-            capture.set(Videoio.CAP_PROP_FRAME_WIDTH, 460);
-            capture.set(Videoio.CAP_PROP_FRAME_HEIGHT, 320);
-        }
+    private Mat procesarImagen(Mat src) {
+        Mat dst = new Mat();
 
-        capture.open(0);
-        timer.start();
+        Imgproc.cvtColor(src, dst, Imgproc.COLOR_BGR2GRAY);
+        Imgproc.GaussianBlur(dst, dst, new Size(7, 7), 1.5, 1.5);
+        Imgproc.Canny(dst, dst, 0, 30, 3, false);
+
+        return dst;
+    }
+
+    private void ready(WorkerStateEvent worker) {
+        Image image = (Image) worker.getSource().getValue();
+        if (image != null) {
+            imageView.setImage(image);
+        }
+    }
+
+    private void start(ActionEvent e) {
+        if (!capture.isOpened() && !service.isRunning()) {
+            capture.open(0);
+            service.start();
+        }
     }
 
     private void stop(WindowEvent e) {
-        timer.stop();
+        service.cancel();
         capture.release();
-    }
-
-    private Image createImageFromMat(Mat src) {
-        MatOfByte dst = new MatOfByte();
-        Imgcodecs.imencode(".bmp", src, dst);
-        return new Image(new ByteArrayInputStream(dst.toArray()));
     }
 
     /**
